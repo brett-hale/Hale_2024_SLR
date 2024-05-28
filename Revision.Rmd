@@ -1,0 +1,1109 @@
+---
+title: "Alpha.diversity.2"
+author: "BH"
+date: "2024-05-21"
+output: html_document
+---
+
+This RMarkdown file contains code for additional analyses performed during the revision of "Single-molecule-based characterization of the soybean rhizosphere microbiome." Phyloseq objects and sample metadata are provided in ".RData". Questions/comments pertaining to the code can be sent to Brett Hale (brett@agrigro.com) and Asela Wijeratne (awijeratne@astate.edu)
+
+```{r}
+##Get data for the raw datasets
+prok.tax.all <- as.data.frame(tax_table(prok_phyloseq_decontam))
+prok.count.all <- as.data.frame(otu_table(prok_phyloseq_decontam))
+
+fun.tax.all <- as.data.frame(tax_table(fun_phyloseq_decontam))
+fun.count.all <- as.data.frame(otu_table(fun_phyloseq_decontam))
+
+```
+
+```{r}
+##For prokaryotes, look at % ASVs and counts for mapped and unmapped
+# Remove the column 'Neg' from prok.count.all
+#prok.count.all <- prok.count.all[, !colnames(prok.count.all) %in% 'NEG']
+
+# Calculate the number of rows with non-blank values in the 'kingdom' column
+num_non_blank_kingdom <- sum(prok.tax.all$kingdom != "")
+
+# Calculate the total number of rows in the dataframe
+total_rows <- nrow(prok.tax.all)
+
+# Calculate the percentage of rows with non-blank values in the 'kingdom' column
+percentage_non_blank_kingdom <- (num_non_blank_kingdom / total_rows) * 100
+
+# Print the percentage
+percentage_non_blank_kingdom
+
+# Extract the rownames corresponding to rows with non-blank values in 'kingdom'
+selected_rownames <- rownames(prok.tax.all[prok.tax.all$kingdom != "", ])
+
+# Select rows from prok.count.all that correspond to the selected rownames
+selected_rows <- prok.count.all[selected_rownames, ]
+
+# Calculate the sum of all columns for the selected rows
+sum_selected <- sum(selected_rows)
+
+# Calculate the sum of all columns for all rows
+sum_all <- sum(prok.count.all)
+
+# Calculate the proportion of the sum of selected rows to the sum of all rows
+proportion <- sum_selected / sum_all
+
+# Print the proportion
+proportion
+
+```
+
+```{r}
+##For eukaryotes, look at % ASVs and counts for mapped and unmapped
+# Remove the column 'Neg' from fun.count.all
+fun.count.all <- fun.count.all[, !colnames(fun.count.all) %in% 'NEG']
+
+# Calculate the number of rows with non-blank values in the 'kingdom' column of fun.tax.all
+num_non_blank_kingdom_fun <- sum(fun.tax.all$kingdom != "")
+
+# Calculate the total number of rows in the dataframe fun.tax.all
+total_rows_fun <- nrow(fun.tax.all)
+
+# Calculate the percentage of rows with non-blank values in the 'kingdom' column
+percentage_non_blank_kingdom_fun <- (num_non_blank_kingdom_fun / total_rows_fun) * 100
+
+# Print the percentage
+percentage_non_blank_kingdom_fun
+
+# Extract the rownames corresponding to rows with non-blank values in 'kingdom'
+selected_rownames_fun <- rownames(fun.tax.all[fun.tax.all$kingdom != "", ])
+
+# Select rows from fun.count.all that correspond to the selected rownames
+selected_rows_fun <- fun.count.all[selected_rownames_fun, ]
+
+# Calculate the sum of all columns for the selected rows
+sum_selected_fun <- sum(as.matrix(selected_rows_fun))
+
+# Calculate the sum of all columns for all rows
+sum_all_fun <- sum(as.matrix(fun.count.all))
+
+# Calculate the proportion of the sum of selected rows to the sum of all rows
+proportion_fun <- sum_selected_fun / sum_all_fun
+
+# Print the proportion
+proportion_fun
+
+```
+
+
+
+```{r}
+##Alpha diversity with normalized library size
+##First, we must normalize the decontaminated dataset
+##Start with prokaryotes- prok_phyloseq_decontam
+##Identify the samples to be removed
+samples_to_remove <- c("sample_65", "NEG")
+
+# Remove these samples from the phyloseq object
+prok_phyloseq_decontam_v2 <- prune_samples(!(sample_names(prok_phyloseq_decontam) %in% samples_to_remove), prok_phyloseq_decontam)
+
+# Convert the modified phyloseq object to a metagenomeSeq object
+prok_decontam_metagenomeSeq_v2 <- phyloseq_to_metagenomeSeq(prok_phyloseq_decontam_v2)
+
+# Calculate the normalization statistic
+p_biom_norm_v2 <- cumNormStat(prok_decontam_metagenomeSeq_v2)
+
+# Perform CSS normalization
+biom_quant_norm_v2 <- cumNorm(prok_decontam_metagenomeSeq_v2, p=p_biom_norm_v2)
+
+# Extract the normalized counts
+prok_decontam_normalized_counts_v2 <- MRcounts(biom_quant_norm_v2, norm=TRUE)
+
+# Optionally, you can convert back to a phyloseq object with normalized counts
+# Extract sample data and taxonomy information
+samples_data_v2 <- sample_data(prok_phyloseq_decontam_v2)
+tax_data_v2 <- tax_table(prok_phyloseq_decontam_v2)
+
+# Create the normalized phyloseq object
+prok_phyloseq_normalized_v2 <- phyloseq(otu_table(prok_decontam_normalized_counts_v2, taxa_are_rows = TRUE), tax_data_v2, samples_data_v2)
+
+```
+
+```{r}
+##Now, calculate alpha diversity
+##Must round integers
+
+# Round the normalized counts to the nearest whole number
+rounded_counts_v2 <- round(MRcounts(biom_quant_norm_v2, norm=TRUE))
+
+# Update the OTU table in the phyloseq object with these rounded counts
+otu_table(prok_phyloseq_decontam_v2) <- otu_table(rounded_counts_v2, taxa_are_rows = TRUE)
+
+# Create the normalized phyloseq object with rounded counts
+prok_phyloseq_normalized_v2 <- phyloseq(otu_table(prok_phyloseq_decontam_v2), 
+                                        tax_table(prok_phyloseq_decontam_v2), 
+                                        sample_data(prok_phyloseq_decontam_v2))
+
+# Estimate alpha diversity indices for the normalized and rounded data
+bacterial_alpha_v2 <- estimate_richness(prok_phyloseq_normalized_v2, measures = c("Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson"))
+
+# Convert rownames to a column for alpha diversity data
+bacterial_alpha_v2 <- tibble::rownames_to_column(bacterial_alpha_v2, "sample")
+
+# Calculate evenness using the microbiome package
+bacterial_evenness_v2 <- evenness(prok_phyloseq_normalized_v2, 'pielou')
+
+# Convert rownames to a column for evenness data
+bacterial_evenness_v2 <- tibble::rownames_to_column(bacterial_evenness_v2, "sample")
+colnames(bacterial_evenness_v2)[2] <- "Pielou"
+
+# Merge all alpha diversity indices and evenness into one dataframe
+bacteria_alpha_compiled_v2 <- merge(bacterial_alpha_v2, bacterial_evenness_v2, by = "sample")
+
+# Merge with sample metadata
+bacteria_alpha_compiled_v2 <- merge(bacteria_alpha_compiled_v2, Field_ID, by = "sample")
+
+# Convert to long format for plotting or further analysis
+bacteria_alpha_compiled_long_v2 <- gather(bacteria_alpha_compiled_v2, metric, value, Observed:Pielou, factor_key=TRUE)
+
+# Subsetting metrics for specific analyses such as GLMMs
+bacteria_richness_v2 <- subset(bacteria_alpha_compiled_long_v2, metric %in% c('Observed'))
+bacteria_evenness_v2 <- subset(bacteria_alpha_compiled_long_v2, metric %in% c('Pielou'))
+bacteria_simpson_v2 <- subset(bacteria_alpha_compiled_long_v2, metric %in% c('Simpson'))
+bacteria_shannon_v2 <- subset(bacteria_alpha_compiled_long_v2, metric %in% c('Shannon'))
+bacteria_chao_v2 <- subset(bacteria_alpha_compiled_long_v2, metric %in% c('Chao1'))
+
+```
+
+```{r}
+##Let's now split data and begin constructing GLMMs
+##16S Chao1
+library("dplyr")
+library("ggpubr")
+library("car")
+library("MASS")
+library("lme4")
+library("sjPlot")
+library("sjlabelled")
+library("sjmisc")
+library("tibble")
+library("performance")
+library("AER")
+library("patchwork")
+library("glmmTMB")
+
+##Split data
+bacteria_alpha_baseline_v2 <- bacteria_alpha_compiled_v2[bacteria_alpha_compiled_v2$Developmental_Stage %in% c('V1'), ]
+  
+bacteria_alpha_after_app_v2 <- bacteria_alpha_compiled_v2[bacteria_alpha_compiled_v2$Developmental_Stage %in% c('V6', 'R3', 'R6'), ]
+
+##Convert "Location" to a factor variable
+bacteria_alpha_after_app_v2$Location <- factor(bacteria_alpha_after_app_v2$Location)
+
+###Checking the normality of Chao1 using Shapiro-Wilk test###
+shapiro_result.chao_v2 <- shapiro.test(bacteria_alpha_after_app_v2$Chao1) ##W = 0.67646, p-value = 5.217e-09
+
+###Determining the best-fitting distribution (if departure from normality)###
+if (shapiro_result.chao_v2$p.value < 0.05) {
+  #chao <- bacteria_alpha_after_app$Chao1 + 1  # Create new dataframe with Chao1 + 1
+  
+  distributions <- c("lnorm", "gamma", "nbinom", "pois", "binom")
+  best_fit <- NULL
+  best_fit_AIC <- Inf
+  
+  for (dist in distributions) {
+    fit <- tryCatch(
+      fitdist(bacteria_alpha_after_app_v2$Chao1, dist),
+      error = function(e) NA
+    )
+    
+    if (!is.na(fit) && fit$aic < best_fit_AIC) {
+      best_fit <- dist
+      best_fit_AIC <- fit$aic
+    }
+  }
+  
+  best_fit  # Check the best-fitting distribution- nbinom
+}
+
+###Double check with qqp###
+chao_v2 <- bacteria_alpha_after_app_v2$Chao1 + 1
+nbinom.chao_v2 <- fitdistr(chao_v2, "Negative Binomial")
+qqp(chao_v2, "nbinom", size = nbinom.chao_v2$estimate[[1]], mu = nbinom.chao_v2$estimate[[2]])
+
+gamma.chao_v2 <- fitdistr(chao_v2, "gamma")
+qqp(chao_v2, "gamma", shape = gamma.chao_v2$estimate[[1]], rate = gamma.chao_v2$estimate[[2]])
+
+qqp(chao_v2, "lnorm")
+qqp(chao_v2, "norm")
+
+##Will use nbinom
+
+###Constructing the GLMM with stepwise selection###
+# Fit the full model with negative binomial distribution
+full_model.chao_v2 <- glmmTMB(Chao1 ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location), data = bacteria_alpha_after_app_v2, family = nbinom2, na.action = "na.fail")
+
+##Perform model selection using dredge
+models.chao_v2 <- dredge(full_model.chao_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.chao_v2)
+
+##Select the best model based on AIC
+best_model.chao_v2 <- get.models(models.chao_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.chao_v2)
+
+```
+
+```{r}
+##16S Shannon
+
+###Checking the normality of Shannon using Shapiro-Wilk test###
+shapiro_result.shannon_v2 <- shapiro.test(bacteria_alpha_after_app_v2$Shannon) #W = 0.91469, p-value = 0.001942
+
+###Determining the best-fitting distribution (if departure from normality)###
+if (shapiro_result.shannon_v2$p.value < 0.05) {
+distributions <- c("lnorm", "gamma", "nbinom", "pois", "binom")
+  best_fit <- NULL
+  best_fit_AIC <- Inf
+  
+  for (dist in distributions) {
+    fit <- tryCatch(
+      fitdist(bacteria_alpha_after_app_v2$Shannon, dist),
+      error = function(e) NA
+    )
+    
+    if (!is.na(fit) && fit$aic < best_fit_AIC) {
+      best_fit <- dist
+      best_fit_AIC <- fit$aic
+    }
+  }
+  
+  best_fit  # Check the best-fitting distribution- gamma norm
+}  
+  
+###Double check with qqp###
+
+shannon_v2 <- bacteria_alpha_after_app_v2$Shannon + 1  # Create new dataframe with Shannon + 1
+
+gamma.shannon_v2 <- fitdistr(shannon_v2, "gamma")
+qqp(shannon_v2, "gamma", shape = gamma.shannon_v2$estimate[[1]], rate = gamma.shannon_v2$estimate[[2]])
+
+qqp(shannon_v2, "lnorm")
+qqp(shannon_v2, "norm")
+
+###Constructing the GLMM with stepwise selection###
+# Fit the full model with gamma distribution
+full_model.shannon_v2 <- glmmTMB(Shannon ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location), data = bacteria_alpha_after_app_v2,
+                              family = Gamma(link = "log"), na.action = "na.fail")
+
+##Perform model selection using dredge
+models.shannon_v2 <- dredge(full_model.shannon_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.shannon_v2)
+
+##Select the best model based on AIC
+best_model.shannon_v2 <- get.models(models.shannon_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.shannon_v2)
+
+```
+
+```{r}
+##16S
+##simpson
+###we will use a beta distribution, since we are working with percentages represented as values bound between 0 and 1
+
+# Fit the full model with beta distribution
+full_model.simpson_v2 <- glmmTMB(Simpson ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location),
+                              family = beta_family(link = "logit"), data = bacteria_alpha_after_app_v2, na.action = "na.fail")
+
+##Perform model selection using dredge
+models.simpson_v2 <- dredge(full_model.simpson_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.simpson_v2)
+
+##Select the best model based on AIC
+best_model.simpson_v2 <- get.models(models.simpson_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.simpson_v2)
+
+```
+
+```{r}
+##16S
+##pielou
+###we will use a beta distribution, since we are working with percentages represented as values bound between 0 and 1
+
+# Fit the full model with beta distribution
+full_model.pielou_v2 <- glmmTMB(Pielou ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location),
+                              family = beta_family(link = "logit"), data = bacteria_alpha_after_app_v2, na.action = "na.fail")
+
+##Perform model selection using dredge
+models.pielou_v2 <- dredge(full_model.pielou_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.pielou_v2)
+
+##Select the best model based on AIC
+best_model.pielou_v2 <- get.models(models.pielou_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.pielou_v2)
+
+```
+
+```{r}
+##All 16S alpha diversity estimates were consistent with the unnormalized dataset. We will go ahead and look at the 16S baseline before moving to 18S-ITS
+##Chao1 for baseline
+shapiro_result.base.chao_v2 <- shapiro.test(bacteria_alpha_baseline_v2$Chao1) #W = 0.95196, p-value = 0.5214
+
+###Double check with qqp###
+base.chao_v2 <- bacteria_alpha_baseline_v2$Chao1 + 1
+
+nbinom.base.chao_v2 <- fitdistr(base.chao_v2, "Negative Binomial")
+qqp(base.chao_v2, "nbinom", size = nbinom.base.chao_v2$estimate[[1]], mu = nbinom.base.chao_v2$estimate[[2]])
+
+gamma.base.chao_v2 <- fitdistr(base.chao_v2, "gamma")
+qqp(base.chao_v2, "gamma", shape = gamma.base.chao_v2$estimate[[1]], rate = gamma.base.chao_v2$estimate[[2]])
+
+qqp(base.chao_v2, "lnorm")
+qqp(base.chao_v2, "norm")
+
+###Will use a normal distribution
+##Full model
+full_model.base.chao_v2 <- glmmTMB(Chao1 ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = bacteria_alpha_baseline_v2,
+                          family = gaussian(link = "identity"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.chao_v2 <- dredge(full_model.base.chao_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.chao_v2)
+
+##Select the best model based on AIC
+best_model.base.chao_v2 <- get.models(models.base.chao_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.chao_v2)
+
+```
+
+```{r}
+##16S
+##shannon for baseline
+shapiro_result.base.shannon_v2 <- shapiro.test(bacteria_alpha_baseline_v2$Shannon) ##W = 0.97778, p-value = 0.9435
+
+###Double check with qqp###
+base.shannon_v2 <- bacteria_alpha_baseline_v2$Shannon + 1
+
+gamma.base.shannon_v2 <- fitdistr(base.shannon_v2, "gamma")
+qqp(base.shannon_v2, "gamma", shape = gamma.base.shannon_v2$estimate[[1]], rate = gamma.base.shannon_v2$estimate[[2]])
+
+qqp(base.shannon_v2, "lnorm")
+qqp(base.shannon_v2, "norm")
+
+###Will use a normal distribution
+##Full model
+full_model.base.shannon_v2 <- glmmTMB(Shannon ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = bacteria_alpha_baseline_v2,
+                          family = gaussian(link = "identity"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.shannon_v2 <- dredge(full_model.base.shannon_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.shannon_v2)
+
+##Select the best model based on AIC
+best_model.base.shannon_v2 <- get.models(models.base.shannon_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.shannon_v2)
+
+```
+
+```{r}
+##16S
+##simpson for baseline
+##Full model
+full_model.base.simpson_v2 <- glmmTMB(Simpson ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = bacteria_alpha_baseline_v2,
+                          family = beta_family(link = "logit"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.simpson_v2 <- dredge(full_model.base.simpson_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.simpson_v2)
+
+##Select the best model based on AIC
+best_model.base.simpson_v2 <- get.models(models.base.simpson_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.simpson_v2)
+
+```
+
+```{r}
+##16S
+##pielou for baseline
+##Full model
+full_model.base.pielou_v2 <- glmmTMB(Pielou ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = bacteria_alpha_baseline_v2,
+                          family = beta_family(link = "logit"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.pielou_v2 <- dredge(full_model.base.pielou_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.pielou_v2)
+
+##Select the best model based on AIC
+best_model.base.pielou_v2 <- get.models(models.base.pielou_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.pielou_v2)
+
+```
+
+```{r}
+##Now for the 18S-ITS dataset
+##Will use fun_phyloseq_decontam
+## Identify the samples to be removed
+samples_to_remove_fun <- c("sample_65", "NEG")
+
+# Remove these samples from the fungal phyloseq object
+fun_phyloseq_decontam_v2 <- prune_samples(!(sample_names(fun_phyloseq_decontam) %in% samples_to_remove_fun), fun_phyloseq_decontam)
+
+# Convert the modified fungal phyloseq object to a metagenomeSeq object
+fun_decontam_metagenomeSeq_v2 <- phyloseq_to_metagenomeSeq(fun_phyloseq_decontam_v2)
+
+# Calculate the normalization statistic
+p_biom_norm_fun_v2 <- cumNormStat(fun_decontam_metagenomeSeq_v2)
+
+# Perform CSS normalization
+biom_quant_norm_fun_v2 <- cumNorm(fun_decontam_metagenomeSeq_v2, p=p_biom_norm_fun_v2)
+
+# Extract the normalized counts
+fun_decontam_normalized_counts_v2 <- MRcounts(biom_quant_norm_fun_v2, norm=TRUE)
+
+# Extract sample data and taxonomy information from the normalized fungal phyloseq object
+samples_data_fun_v2 <- sample_data(fun_phyloseq_decontam_v2)
+tax_data_fun_v2 <- tax_table(fun_phyloseq_decontam_v2)
+
+# Create the normalized fungal phyloseq object with rounded counts
+fun_phyloseq_normalized_v2 <- phyloseq(otu_table(fun_decontam_normalized_counts_v2, taxa_are_rows = TRUE), tax_data_fun_v2, samples_data_fun_v2)
+
+```
+
+```{r}
+# Round the normalized counts to the nearest whole number for the fungal dataset
+rounded_counts_fun_v2 <- round(MRcounts(biom_quant_norm_fun_v2, norm=TRUE))
+
+# Update the OTU table in the fungal phyloseq object with these rounded counts
+otu_table(fun_phyloseq_decontam_v2) <- otu_table(rounded_counts_fun_v2, taxa_are_rows = TRUE)
+
+# Create the normalized and rounded fungal phyloseq object
+fun_phyloseq_normalized_rounded_v2 <- phyloseq(otu_table(fun_phyloseq_decontam_v2), 
+                                        tax_table(fun_phyloseq_decontam_v2), 
+                                        sample_data(fun_phyloseq_decontam_v2))
+
+# Estimate alpha diversity indices for the normalized and rounded fungal data
+fun_alpha_v2 <- estimate_richness(fun_phyloseq_normalized_rounded_v2, measures = c("Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson"))
+
+# Convert rownames to a column for alpha diversity data
+fun_alpha_v2 <- tibble::rownames_to_column(fun_alpha_v2, "sample")
+
+# Calculate evenness using the microbiome package
+fun_evenness_v2 <- evenness(fun_phyloseq_normalized_rounded_v2, 'pielou')
+
+# Convert rownames to a column for evenness data
+fun_evenness_v2 <- tibble::rownames_to_column(fun_evenness_v2, "sample")
+colnames(fun_evenness_v2)[2] <- "Pielou"
+
+# Merge all alpha diversity indices and evenness into one dataframe
+fun_alpha_compiled_v2 <- merge(fun_alpha_v2, fun_evenness_v2, by = "sample")
+
+# Assume 'Field_ID' is a dataframe with sample metadata; ensure it's available
+# Merge with sample metadata (assuming 'Field_ID' contains a column 'sample')
+fun_alpha_compiled_v2 <- merge(fun_alpha_compiled_v2, Field_ID, by = "sample")
+
+# Convert to long format for plotting or further analysis
+fun_alpha_compiled_long_v2 <- gather(fun_alpha_compiled_v2, metric, value, Observed:Pielou, factor_key=TRUE)
+
+# Subsetting metrics for specific analyses such as GLMMs
+fun_richness_v2 <- subset(fun_alpha_compiled_long_v2, metric %in% c('Observed'))
+fun_evenness_v2 <- subset(fun_alpha_compiled_long_v2, metric %in% c('Pielou'))
+fun_simpson_v2 <- subset(fun_alpha_compiled_long_v2, metric %in% c('Simpson'))
+fun_shannon_v2 <- subset(fun_alpha_compiled_long_v2, metric %in% c('Shannon'))
+fun_chao_v2 <- subset(fun_alpha_compiled_long_v2, metric %in% c('Chao1'))
+
+```
+
+```{r}
+##18S-ITS
+##Let's split data and begin constructing GLMMs
+##Split data
+fun_alpha_baseline_v2 <- fun_alpha_compiled_v2[fun_alpha_compiled_v2$Developmental_Stage %in% c('V1'), ]
+  
+fun_alpha_after_app_v2 <- fun_alpha_compiled_v2[fun_alpha_compiled_v2$Developmental_Stage %in% c('V6', 'R3', 'R6'), ]
+
+###Checking the normality of Chao1 using Shapiro-Wilk test###
+shapiro_result.chao.fun_v2 <- shapiro.test(fun_alpha_after_app_v2$Chao1) ##W = 0.94024, p-value = 0.01657
+
+###Double check with qqp###
+chao.fun_v2 <- fun_alpha_after_app_v2$Chao1 + 1
+
+#nbinom.chao.fun_v2 <- fitdistr(chao.fun_v2, "Negative Binomial")
+#qqp(chao.fun_v2, "nbinom", size = nbinom.chao.fun_v2$estimate[[1]], mu = nbinom.chao.fun_v2$estimate[[2]])
+
+gamma.chao.fun_v2 <- fitdistr(chao.fun_v2, "gamma")
+qqp(chao.fun_v2, "gamma", shape = gamma.chao.fun_v2$estimate[[1]], rate = gamma.chao.fun_v2$estimate[[2]])
+
+qqp(chao.fun_v2, "lnorm")
+qqp(chao.fun_v2, "norm")
+
+##Will use norm
+
+###Constructing the GLMM with stepwise selection###
+# Fit the full model with negative binomial distribution
+full_model.chao.fun_v2 <- glmmTMB(Chao1 ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location),
+                               data = fun_alpha_after_app_v2,
+                               family = gaussian(link = "identity"),
+                               na.action = "na.fail")
+
+##Perform model selection using dredge
+models.chao.fun_v2 <- dredge(full_model.chao.fun_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.chao.fun_v2)
+
+##Select the best model based on AIC
+best_model.chao.fun_v2 <- get.models(models.chao.fun_v2, subset = delta < 2)[[1]] ##Convergence issue; must double-check
+
+##Print the best model
+summary(best_model.chao.fun_v2)
+
+```
+
+```{r}
+##18S-ITS
+##shannon
+###Checking the normality of Shannon using Shapiro-Wilk test###
+shapiro_result.shannon.fun_v2 <- shapiro.test(fun_alpha_after_app_v2$Shannon) #W = 0.66341, p-value = 3.168e-09
+
+###Determining the best-fitting distribution (if departure from normality)###
+if (shapiro_result.shannon.fun_v2$p.value < 0.05) {
+distributions <- c("lnorm", "gamma", "nbinom", "pois", "binom")
+  best_fit <- NULL
+  best_fit_AIC <- Inf
+  
+  for (dist in distributions) {
+    fit <- tryCatch(
+      fitdist(fun_alpha_after_app_v2$Shannon, dist),
+      error = function(e) NA
+    )
+    
+    if (!is.na(fit) && fit$aic < best_fit_AIC) {
+      best_fit <- dist
+      best_fit_AIC <- fit$aic
+    }
+  }
+  
+  best_fit  # Check the best-fitting distribution- gamma
+}  
+  
+###Double check with qqp###
+shannon.fun_v2 <- fun_alpha_after_app_v2$Shannon + 1  # Create new dataframe with Shannon + 1
+
+gamma.shannon.fun_v2 <- fitdistr(shannon.fun_v2, "gamma")
+qqp(shannon.fun_v2, "gamma", shape = gamma.shannon.fun_v2$estimate[[1]], rate = gamma.shannon.fun_v2$estimate[[2]])
+
+qqp(shannon.fun_v2, "lnorm")
+qqp(shannon.fun_v2, "norm")
+
+
+###Constructing the GLMM with stepwise selection###
+# Fit the full model with gamma distribution
+full_model.shannon.fun_v2 <- glmmTMB(Shannon ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location), data = fun_alpha_after_app_v2,
+                              family = Gamma(link = "log"), na.action = "na.fail")
+
+
+##Perform model selection using dredge
+#models.shannon.fun <- dredge(full_model.shannon.fun, m.min = 1)
+models.shannon.fun_v2 <- dredge(full_model.shannon.fun_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.shannon.fun_v2)
+
+##Select the best model based on AIC
+best_model.shannon.fun_v2 <- get.models(models.shannon.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.shannon.fun_v2)
+
+```
+
+```{r}
+##18S-ITS
+##simpson
+###we will use a beta distribution, since we are working with percentages represented as values bound between 0 and 1
+
+# Fit the full model with beta distribution
+full_model.simpson.fun_v2 <- glmmTMB(Simpson ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location),
+                              family = beta_family(link = "logit"), data = fun_alpha_after_app_v2, na.action = "na.fail")
+
+##Perform model selection using dredge
+models.simpson.fun_v2 <- dredge(full_model.simpson.fun_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+print(models.simpson.fun_v2)
+
+##Select the best model based on AIC
+best_model.simpson.fun_v2 <- get.models(models.simpson.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.simpson.fun_v2)
+
+```
+
+```{r}
+##18S-ITS
+##pielou
+###we will use a beta distribution, since we are working with percentages represented as values bound between 0 and 1
+
+# Fit the full model with beta distribution
+full_model.pielou.fun_v2 <- glmmTMB(Pielou ~ (Treatment + Developmental_Stage + Cultivar)^3 + (1 | Location),
+                              family = beta_family(link = "logit"), data = fun_alpha_after_app_v2, na.action = "na.fail")
+
+##Perform model selection using dredge
+models.pielou.fun_v2 <- dredge(full_model.pielou.fun_v2, m.min = 1, fixed = c("cond(Cultivar)", "cond(Developmental_Stage)", "cond(Treatment)"))
+
+##Print all models
+#print(models.pielou.fun_v2)
+
+##Select the best model based on AIC
+best_model.pielou.fun_v2 <- get.models(models.pielou.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.pielou.fun_v2)
+
+```
+
+```{r}
+##Now for 18S-ITS baseline
+##18S-ITS
+##Chao1 for baseline
+shapiro_result.base.chao.fun_v2 <- shapiro.test(fun_alpha_baseline_v2$Chao1) #W = 0.85447, p-value = 0.01586; now significant
+
+###Determining the best-fitting distribution (if departure from normality)###
+if (shapiro_result.base.chao.fun_v2$p.value < 0.05) {
+distributions <- c("lnorm", "gamma", "nbinom", "pois", "binom")
+  best_fit <- NULL
+  best_fit_AIC <- Inf
+  
+  for (dist in distributions) {
+    fit <- tryCatch(
+      fitdist(fun_alpha_baseline_v2$Chao1, dist),
+      error = function(e) NA
+    )
+    
+    if (!is.na(fit) && fit$aic < best_fit_AIC) {
+      best_fit <- dist
+      best_fit_AIC <- fit$aic
+    }
+  }
+  
+  best_fit  # Check the best-fitting distribution- lnorm
+}  
+
+###Double check with qqp###
+base.chao.fun_v2 <- fun_alpha_baseline_v2$Chao1 + 1
+
+gamma.base.chao.fun_v2 <- fitdistr(base.chao.fun_v2, "gamma")
+qqp(base.chao.fun_v2, "gamma", shape = gamma.base.chao.fun_v2$estimate[[1]], rate = gamma.base.chao.fun_v2$estimate[[2]])
+
+qqp(base.chao.fun_v2, "lnorm")
+qqp(base.chao.fun_v2, "norm")
+
+###Will use lnorm distribution
+##Full model
+full_model.base.chao.fun_v2 <- glmmTMB(Chao1 ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = fun_alpha_baseline_v2,
+                          family = gaussian(link = "log"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.chao.fun_v2 <- dredge(full_model.base.chao.fun_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.chao.fun_v2)
+
+##Select the best model based on AIC
+best_model.base.chao.fun_v2 <- get.models(models.base.chao.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.chao.fun_v2)
+
+```
+
+```{r}
+##shannon for baseline
+shapiro_result.base.shannon.fun_v2 <- shapiro.test(fun_alpha_baseline_v2$Shannon) #W = 0.98026, p-value = 0.9656
+
+###Double check with qqp###
+base.shannon.fun_v2 <- fun_alpha_baseline_v2$Shannon + 1
+
+gamma.base.shannon.fun_v2 <- fitdistr(base.shannon.fun_v2, "gamma")
+qqp(base.shannon.fun_v2, "gamma", shape = gamma.base.shannon.fun_v2$estimate[[1]], rate = gamma.base.shannon.fun_v2$estimate[[2]])
+
+qqp(base.shannon.fun_v2, "lnorm")
+qqp(base.shannon.fun_v2, "norm")
+
+###Will use a normal distribution
+##Full model
+full_model.base.shannon.fun_v2 <- glmmTMB(Shannon ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = fun_alpha_baseline_v2,
+                          family = gaussian(link = "identity"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.shannon.fun_v2 <- dredge(full_model.base.shannon.fun_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.shannon.fun_v2)
+
+##Select the best model based on AIC
+best_model.base.shannon.fun_v2 <- get.models(models.base.shannon.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.shannon.fun_v2)
+
+```
+
+```{r}
+##18S-ITS
+##simpson for baseline
+##Full model
+full_model.base.simpson.fun_v2 <- glmmTMB(Simpson ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = fun_alpha_baseline_v2,
+                          family = beta_family(link = "logit"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.simpson.fun_v2 <- dredge(full_model.base.simpson.fun_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.simpson.fun_v2)
+
+##Select the best model based on AIC
+best_model.base.simpson.fun_v2 <- get.models(models.base.simpson.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.simpson.fun_v2) ##Treatment statistically significant
+
+##Get ME
+base.simpson.margins.fun_v2 <- as.data.frame(marginal_effects(best_model.base.simpson.fun, type = "response"))
+
+```
+
+```{r}
+##18S-ITS
+##pielou for baseline
+##Full model
+full_model.base.pielou.fun_v2 <- glmmTMB(Pielou ~ (Treatment + Cultivar)^2 + (1 | Location),
+                          data = fun_alpha_baseline_v2,
+                          family = beta_family(link = "logit"),
+                          na.action = "na.fail")
+
+##Model selection
+models.base.pielou.fun_v2 <- dredge(full_model.base.pielou.fun_v2, m.min = 1, fixed = c("cond(Cultivar)","cond(Treatment)"))
+
+##Print all models
+#print(models.base.pielou.fun_v2)
+
+##Select the best model based on AIC
+best_model.base.pielou.fun_v2 <- get.models(models.base.pielou.fun_v2, subset = delta < 2)[[1]]
+
+##Print the best model
+summary(best_model.base.pielou.fun_v2)
+
+```
+
+```{r}
+##Let's do beta diversity with the entire dataset to see if findings are consistent with those obtained using mapped ASVs. 
+##We will stick exclusively with Bray-Curtis dissimilarity
+##16S
+
+##Split into before and after biostimulant application
+pruned_norm_baseline.ASV_v2 <- prune_samples(sample_data(prok_phyloseq_normalized_v2)$Developmental_Stage == "V1", prok_phyloseq_normalized_v2)
+
+pruned_norm_real.ASV_v2 <- prune_samples(!sample_data(prok_phyloseq_normalized_v2)$Developmental_Stage == "V1", prok_phyloseq_normalized_v2)
+
+## Make a data frame from the sample_data
+real_v2.sample_data.ASV <- data.frame(sample_data(pruned_norm_real.ASV_v2))  # Convert sample metadata to a data frame
+
+## Calculate bray curtis distance matrix
+real_v2.sample_bray.ASV <- phyloseq::distance(pruned_norm_real.ASV_v2, method = "bray")
+
+# Set up the formula with interactions for adonis2
+real_v2.formula.ASV <- real_v2.sample_bray.ASV ~ (Treatment + Cultivar + Developmental_Stage)^2 
+
+# Perform PERMANOVA analysis
+real_v2.permanova_result.ASV <- adonis2(real_v2.formula.ASV, data = real_v2.sample_data.ASV, strata = real_v2.sample_data.ASV$Location, permutations = 9999)
+
+### Add corrected p-value
+real_v2.permanova_result.ASV$qval <- p.adjust(real_v2.permanova_result.ASV$`Pr(>F)`, "fdr")
+
+# Print and export the result
+print(real_v2.permanova_result.ASV)
+write.csv(real_v2.permanova_result.ASV, "prok.real_v2.permanova.csv", row.names = TRUE)
+
+## Homogeneity of dispersion test
+## Add columns for interactions
+real_v2.sample_data.ASV$trt.cult <- paste(real_v2.sample_data.ASV$Treatment, real_v2.sample_data.ASV$Cultivar)
+real_v2.sample_data.ASV$trt.ds <- paste(real_v2.sample_data.ASV$Treatment, real_v2.sample_data.ASV$Developmental_Stage)
+real_v2.sample_data.ASV$cult.ds <- paste(real_v2.sample_data.ASV$Cultivar, real_v2.sample_data.ASV$Developmental_Stage)
+
+## Treatment
+prok.real_v2.beta.trt.ASV <- betadisper(real_v2.sample_bray.ASV, real_v2.sample_data.ASV$Treatment)
+plot(prok.real_v2.beta.trt.ASV)
+anova(prok.real_v2.beta.trt.ASV, permutations = 9999)
+prok.real_v2.beta.trt.pt.ASV <- permutest(prok.real_v2.beta.trt.ASV, permutations = 9999, pairwise = TRUE)
+scores(prok.real_v2.beta.trt.ASV)
+plot(TukeyHSD(prok.real_v2.beta.trt.ASV), las = 1)
+
+## Cultivar
+prok.real_v2.beta.cult.ASV <- betadisper(real_v2.sample_bray.ASV, real_v2.sample_data.ASV$Cultivar)
+plot(prok.real_v2.beta.cult.ASV)
+anova(prok.real_v2.beta.cult.ASV, permutations = 9999)
+prok.real_v2.beta.cult.pt.ASV <- permutest(prok.real_v2.beta.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(prok.real_v2.beta.cult.ASV)
+plot(TukeyHSD(prok.real_v2.beta.cult.ASV), las = 1)
+
+## Developmental Stage
+prok.real_v2.beta.ds.ASV <- betadisper(real_v2.sample_bray.ASV, real_v2.sample_data.ASV$Developmental_Stage)
+plot(prok.real_v2.beta.ds.ASV)
+anova(prok.real_v2.beta.ds.ASV, permutations = 9999)
+prok.real_v2.beta.ds.pt.ASV <- permutest(prok.real_v2.beta.ds.ASV, permutations = 9999, pairwise = TRUE)
+scores(prok.real_v2.beta.ds.ASV)
+plot(TukeyHSD(prok.real_v2.beta.ds.ASV), las = 1)
+
+## Treatment:Cultivar
+prok.real_v2.beta.trt.cult.ASV <- betadisper(real_v2.sample_bray.ASV, real_v2.sample_data.ASV$trt.cult)
+plot(prok.real_v2.beta.trt.cult.ASV)
+anova(prok.real_v2.beta.trt.cult.ASV, permutations = 9999)
+prok.real_v2.beta.trt.cult.pt.ASV <- permutest(prok.real_v2.beta.trt.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(prok.real_v2.beta.trt.cult.ASV)
+plot(TukeyHSD(prok.real_v2.beta.trt.cult.ASV), las = 1)
+
+## Treatment:Developmental Stage
+prok.real_v2.beta.trt.ds.ASV <- betadisper(real_v2.sample_bray.ASV, real_v2.sample_data.ASV$trt.ds)
+plot(prok.real_v2.beta.trt.ds.ASV)
+anova(prok.real_v2.beta.trt.ds.ASV, permutations = 9999)
+prok.real_v2.beta.trt.ds.pt.ASV <- permutest(prok.real_v2.beta.trt.ds.ASV, permutations = 9999, pairwise = TRUE)
+scores(prok.real_v2.beta.trt.ds.ASV)
+plot(TukeyHSD(prok.real_v2.beta.trt.ds.ASV), las = 1)
+
+## Cultivar:Developmental Stage
+prok.real_v2.beta.cult.ds.ASV <- betadisper(real_v2.sample_bray.ASV, real_v2.sample_data.ASV$cult.ds)
+plot(prok.real_v2.beta.cult.ds.ASV)
+anova(prok.real_v2.beta.cult.ds.ASV, permutations = 9999)
+prok.real_v2.beta.cult.ds.pt.ASV <- permutest(prok.real_v2.beta.cult.ds.ASV, permutations = 9999, pairwise = TRUE)
+scores(prok.real_v2.beta.cult.ds.ASV)
+plot(TukeyHSD(prok.real_v2.beta.cult.ds.ASV), las = 1)
+
+```
+
+```{r}
+##18S-ITS
+#fun_phyloseq_normalized_v2
+fun.pruned_norm_baseline.ASV_v2 <- prune_samples(sample_data(fun_phyloseq_normalized_v2)$Developmental_Stage == "V1", fun_phyloseq_normalized_v2)
+
+fun.pruned_norm_real.ASV_v2 <- prune_samples(!sample_data(fun_phyloseq_normalized_v2)$Developmental_Stage == "V1", fun_phyloseq_normalized_v2)
+
+## Make a data frame from the sample_data
+fun_v2.real.sample_data.ASV <- data.frame(sample_data(fun.pruned_norm_real.ASV_v2))  # Convert sample metadata to a data frame
+
+## Calculate distance matrix
+fun_v2.real.sample_bray.ASV <- phyloseq::distance(fun.pruned_norm_real.ASV_v2, method = "bray")
+
+# Set up the formula with interactions for adonis2
+fun_v2.real.formula.ASV <- fun_v2.real.sample_bray.ASV ~ (Treatment + Cultivar + Developmental_Stage)^2 
+
+# Perform PERMANOVA analysis
+fun_v2.real.permanova_result.ASV <- adonis2(fun_v2.real.formula.ASV, data = fun_v2.real.sample_data.ASV, strata = fun_v2.real.sample_data.ASV$Location, permutations = 9999)
+
+### Add corrected p-value
+fun_v2.real.permanova_result.ASV$qval <- p.adjust(fun_v2.real.permanova_result.ASV$`Pr(>F)`, "fdr")
+
+# Print and export the result
+print(fun_v2.real.permanova_result.ASV)
+write.csv(fun_v2.real.permanova_result.ASV, "fun_v2.prok.real.permanova.csv", row.names = TRUE)
+
+## Homogeneity of dispersion test
+## Add columns for interactions
+fun_v2.real.sample_data.ASV$trt.cult <- paste(fun_v2.real.sample_data.ASV$Treatment, fun_v2.real.sample_data.ASV$Cultivar)
+fun_v2.real.sample_data.ASV$trt.ds <- paste(fun_v2.real.sample_data.ASV$Treatment, fun_v2.real.sample_data.ASV$Developmental_Stage)
+fun_v2.real.sample_data.ASV$cult.ds <- paste(fun_v2.real.sample_data.ASV$Cultivar, fun_v2.real.sample_data.ASV$Developmental_Stage)
+
+## Treatment
+fun_v2.real.beta.trt.ASV <- betadisper(fun_v2.real.sample_bray.ASV, fun_v2.real.sample_data.ASV$Treatment)
+plot(fun_v2.real.beta.trt.ASV)
+anova(fun_v2.real.beta.trt.ASV, permutations = 9999)
+fun_v2.real.beta.trt.pt.ASV <- permutest(fun_v2.real.beta.trt.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.real.beta.trt.ASV)
+plot(TukeyHSD(fun_v2.real.beta.trt.ASV), las = 1)
+
+## Cultivar
+fun_v2.real.beta.cult.ASV <- betadisper(fun_v2.real.sample_bray.ASV, fun_v2.real.sample_data.ASV$Cultivar)
+plot(fun_v2.real.beta.cult.ASV)
+anova(fun_v2.real.beta.cult.ASV, permutations = 9999)
+fun_v2.real.beta.cult.pt.ASV <- permutest(fun_v2.real.beta.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.real.beta.cult.ASV)
+plot(TukeyHSD(fun_v2.real.beta.cult.ASV), las = 1)
+
+## Developmental Stage
+fun_v2.real.beta.ds.ASV <- betadisper(fun_v2.real.sample_bray.ASV, fun_v2.real.sample_data.ASV$Developmental_Stage)
+plot(fun_v2.real.beta.ds.ASV)
+anova(fun_v2.real.beta.ds.ASV, permutations = 9999)
+fun_v2.real.beta.ds.pt.ASV <- permutest(fun_v2.real.beta.ds.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.real.beta.ds.ASV)
+plot(TukeyHSD(fun_v2.real.beta.ds.ASV), las = 1)
+
+## Treatment:Cultivar
+fun_v2.real.beta.trt.cult.ASV <- betadisper(fun_v2.real.sample_bray.ASV, fun_v2.real.sample_data.ASV$trt.cult)
+plot(fun_v2.real.beta.trt.cult.ASV)
+anova(fun_v2.real.beta.trt.cult.ASV, permutations = 9999)
+fun_v2.real.beta.trt.cult.pt.ASV <- permutest(fun_v2.real.beta.trt.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.real.beta.trt.cult.ASV)
+plot(TukeyHSD(fun_v2.real.beta.trt.cult.ASV), las = 1)
+
+## Treatment:Developmental Stage
+fun_v2.real.beta.trt.ds.ASV <- betadisper(fun_v2.real.sample_bray.ASV, fun_v2.real.sample_data.ASV$trt.ds)
+plot(fun_v2.real.beta.trt.ds.ASV)
+anova(fun_v2.real.beta.trt.ds.ASV, permutations = 9999)
+fun_v2.real.beta.trt.ds.pt.ASV <- permutest(fun_v2.real.beta.trt.ds.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.real.beta.trt.ds.ASV)
+plot(TukeyHSD(fun_v2.real.beta.trt.ds.ASV), las = 1)
+
+## Cultivar:Developmental Stage
+fun_v2.real.beta.cult.ds.ASV <- betadisper(fun_v2.real.sample_bray.ASV, fun_v2.real.sample_data.ASV$cult.ds)
+plot(fun_v2.real.beta.cult.ds.ASV)
+anova(fun_v2.real.beta.cult.ds.ASV, permutations = 9999)
+fun_v2.real.beta.cult.ds.pt.ASV <- permutest(fun_v2.real.beta.cult.ds.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.real.beta.cult.ds.ASV)
+plot(TukeyHSD(fun_v2.real.beta.cult.ds.ASV), las = 1)
+
+```
+
+```{r}
+##16S Baseline Bray
+## Make a data frame from the sample_data
+baseline_v2.sample_data.ASV <- data.frame(sample_data(pruned_norm_baseline.ASV_v2))  # Convert sample metadata to a data frame
+
+## Calculate bray curtis distance matrix
+baseline_v2.sample_bray.ASV <- phyloseq::distance(pruned_norm_baseline.ASV_v2, method = "bray")
+
+# Set up the formula with interactions for adonis2
+baseline_v2.formula.ASV <- baseline_v2.sample_bray.ASV ~ (Treatment + Cultivar)^2 
+
+# Perform PERMANOVA analysis
+baseline_v2.permanova_result.ASV <- adonis2(baseline_v2.formula.ASV, data = baseline_v2.sample_data.ASV, strata = baseline_v2.sample_data.ASV$Location, permutations = 9999)
+
+### Add corrected p-value
+baseline_v2.permanova_result.ASV$qval <- p.adjust(baseline_v2.permanova_result.ASV$`Pr(>F)`, "fdr")
+
+# Print and export the result
+print(baseline_v2.permanova_result.ASV)
+write.csv(baseline_v2.permanova_result.ASV, "prok.baseline_v2.permanova.csv", row.names = TRUE)
+
+## Homogeneity of dispersion test
+## Add columns for interactions
+baseline_v2.sample_data.ASV$trt.cult <- paste(baseline_v2.sample_data.ASV$Treatment, baseline_v2.sample_data.ASV$Cultivar)
+
+## Treatment
+baseline_v2.beta.trt.ASV <- betadisper(baseline_v2.sample_bray.ASV, baseline_v2.sample_data.ASV$Treatment)
+plot(baseline_v2.beta.trt.ASV)
+anova(baseline_v2.beta.trt.ASV, permutations = 9999)
+baseline_v2.beta.trt.pt.ASV <- permutest(baseline_v2.beta.trt.ASV, permutations = 9999, pairwise = TRUE)
+scores(baseline_v2.beta.trt.ASV)
+plot(TukeyHSD(baseline_v2.beta.trt.ASV), las = 1)
+
+## Cultivar
+baseline_v2.beta.cult.ASV <- betadisper(baseline_v2.sample_bray.ASV, baseline_v2.sample_data.ASV$Cultivar)
+plot(baseline_v2.beta.cult.ASV)
+anova(baseline_v2.beta.cult.ASV, permutations = 9999)
+baseline_v2.beta.cult.pt.ASV <- permutest(baseline_v2.beta.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(baseline_v2.beta.cult.ASV)
+plot(TukeyHSD(baseline_v2.beta.cult.ASV), las = 1)
+
+## Treatment:Cultivar
+baseline_v2.beta.trt.cult.ASV <- betadisper(baseline_v2.sample_bray.ASV, baseline_v2.sample_data.ASV$trt.cult)
+plot(baseline_v2.beta.trt.cult.ASV)
+anova(baseline_v2.beta.trt.cult.ASV, permutations = 9999)
+baseline_v2.beta.trt.cult.pt.ASV <- permutest(baseline_v2.beta.trt.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(baseline_v2.beta.trt.cult.ASV)
+plot(TukeyHSD(baseline_v2.beta.trt.cult.ASV), las = 1)
+
+```
+
+```{r}
+##18S-ITS baseline
+## Make a data frame from the sample_data
+fun_v2.baseline.sample_data.ASV <- data.frame(sample_data(fun.pruned_norm_baseline.ASV_v2))  # Convert sample metadata to a data frame
+
+## Calculate bray curtis distance matrix
+fun_v2.baseline.sample_bray.ASV <- phyloseq::distance(fun.pruned_norm_baseline.ASV_v2, method = "bray")
+
+# Set up the formula with interactions for adonis2
+fun_v2.baseline.formula.ASV <- fun_v2.baseline.sample_bray.ASV ~ (Treatment + Cultivar)^2 
+
+# Perform PERMANOVA analysis
+fun_v2.baseline.permanova_result.ASV <- adonis2(fun_v2.baseline.formula.ASV, data = fun_v2.baseline.sample_data.ASV, strata = fun_v2.baseline.sample_data.ASV$Location, permutations = 9999)
+
+### Add corrected p-value
+fun_v2.baseline.permanova_result.ASV$qval <- p.adjust(fun_v2.baseline.permanova_result.ASV$`Pr(>F)`, "fdr")
+
+# Print and export the result
+print(fun_v2.baseline.permanova_result.ASV)
+write.csv(fun_v2.baseline.permanova_result.ASV, "fun_v2.prok.baseline.permanova.csv", row.names = TRUE)
+
+## Homogeneity of dispersion test
+## Add columns for interactions
+fun_v2.baseline.sample_data.ASV$trt.cult <- paste(fun_v2.baseline.sample_data.ASV$Treatment, fun_v2.baseline.sample_data.ASV$Cultivar)
+
+## Treatment
+fun_v2.baseline.beta.trt.ASV <- betadisper(fun_v2.baseline.sample_bray.ASV, fun_v2.baseline.sample_data.ASV$Treatment)
+plot(fun_v2.baseline.beta.trt.ASV)
+anova(fun_v2.baseline.beta.trt.ASV, permutations = 9999)
+fun_v2.baseline.beta.trt.pt.ASV <- permutest(fun_v2.baseline.beta.trt.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.baseline.beta.trt.ASV)
+plot(TukeyHSD(fun_v2.baseline.beta.trt.ASV), las = 1)
+
+## Cultivar
+fun_v2.baseline.beta.cult.ASV <- betadisper(fun_v2.baseline.sample_bray.ASV, fun_v2.baseline.sample_data.ASV$Cultivar)
+plot(fun_v2.baseline.beta.cult.ASV)
+anova(fun_v2.baseline.beta.cult.ASV, permutations = 9999)
+fun_v2.baseline.beta.cult.pt.ASV <- permutest(fun_v2.baseline.beta.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.baseline.beta.cult.ASV)
+plot(TukeyHSD(fun_v2.baseline.beta.cult.ASV), las = 1)
+
+## Treatment:Cultivar
+fun_v2.baseline.beta.trt.cult.ASV <- betadisper(fun_v2.baseline.sample_bray.ASV, fun_v2.baseline.sample_data.ASV$trt.cult)
+plot(fun_v2.baseline.beta.trt.cult.ASV)
+anova(fun_v2.baseline.beta.trt.cult.ASV, permutations = 9999)
+fun_v2.baseline.beta.trt.cult.pt.ASV <- permutest(fun_v2.baseline.beta.trt.cult.ASV, permutations = 9999, pairwise = TRUE)
+scores(fun_v2.baseline.beta.trt.cult.ASV)
+plot(TukeyHSD(fun_v2.baseline.beta.trt.cult.ASV), las = 1)
+
+```
+
